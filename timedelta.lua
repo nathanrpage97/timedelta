@@ -1,7 +1,15 @@
+---@alias delta_args {weeks: number?, days: number?, hours: number?, minutes: number?, seconds?: number, milliseconds?: number, microseconds?: number}
 ---@class timedelta
 ---@field public days integer
 ---@field public seconds integer
 ---@field public microseconds integer
+---@operator add(timedelta): timedelta
+---@operator sub(timedelta): timedelta
+---@operator mul(number): timedelta
+---@operator mod(number): timedelta
+---@operator div(number): timedelta
+---@operator idiv(integer): timedelta
+---@operator call(delta_args):timedelta
 local timedelta = {}
 
 local modf = math.modf
@@ -21,7 +29,20 @@ local function divmod(x, y)
     return quotient, remainder
 end
 
----@alias delta_args {weeks: number?, days: number?, hours: number?, minutes: number?, seconds?: number, milliseconds?: number, microseconds?: number}
+---round-half-even
+---@param x number
+---@return integer
+local function roundhev(x)
+    local a, b = math.modf(x)
+    if b == 0 then return a end
+    if a % 2 == 0 then
+        return a
+    elseif a < 0 then
+        return a - 1
+    else
+        return a + 1
+    end
+end
 
 setmetatable(timedelta, {
     ---comment
@@ -53,7 +74,7 @@ function timedelta:new(delta)
     -- propagate floating point to smaller units
     days, rem = modf(days + weeks * 7)
     seconds, rem = modf(seconds + hours * 3600 + minutes * 60 + rem * 86400)
-    microseconds = modf(milliseconds * 1000 + microseconds + rem * 1e6)
+    microseconds = roundhev(milliseconds * 1000 + microseconds + rem * 1e6)
 
     -- normalize
     local offset = 0
@@ -61,15 +82,21 @@ function timedelta:new(delta)
     seconds = seconds + offset
     offset, seconds = divmod(seconds, 86400)
     days = days + offset
-    assert(abs(days) <= 999999999, "timedelta too large")
+
+    assert(abs(days) <= 999999999,
+           format("timedelta # of days too large: %s", days))
 
     -- create class
     local td = {days = days, seconds = seconds, microseconds = microseconds}
     setmetatable(td, self)
+    self.__index = self
     return td
 end
 
-function timedelta:__unm() return timedelta:new{seconds = self.seconds} end
+---@return timedelta
+function timedelta:__unm()
+    return timedelta:new{seconds = -1 * self:total_seconds()}
+end
 
 ---@param other timedelta
 ---@return timedelta
@@ -127,7 +154,12 @@ function timedelta:__idiv(i)
     }
 end
 
-function timedelta:__mod(other) end
+---@param other timedelta
+function timedelta:__mod(other)
+    return timedelta:new{
+        seconds = (self:total_seconds() % (other:total_seconds()))
+    }
+end
 
 ---@param other timedelta
 ---@return boolean
